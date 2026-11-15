@@ -42,11 +42,11 @@ inputs:
   cli-version:
     description: "Exact CipherMap CLI version expected from the pinned installer"
     required: false
-    default: "v1.0.5"
+    default: "v1.0.6"
   installer-sha256:
     description: "SHA-256 of install.sh for the pinned CLI release"
     required: false
-    default: "969d30c024886cba29dc525ae3a69d480d324c5f18a60272a49c8d5d83b02e96"
+    default: "f28b1bb75700bdff32867ddb3b61857bed421aa8cc088c4e665f4fbc3017c797"
   args:
     description: "Extra whitespace-delimited scan arguments; use configuration for values containing spaces"
     required: false
@@ -136,7 +136,16 @@ runs:
           exit 1
         }
         effective_license="${CM_LICENSE_KEY:-${CIPHERMAP_LICENSE:-}}"
-        if [ -n "${effective_license}" ] && [ "$(uname -s)" = "Linux" ] && [ "$(uname -m)" = "x86_64" ]; then
+        prebaked_ciphermap=""
+        for candidate_bin in /usr/local/bin/ciphermap "${HOME}/.local/bin/ciphermap"; do
+          if [ -x "${candidate_bin}" ] && "${candidate_bin}" version 2>/dev/null | grep -F "CipherMap Version ${CM_CLI_VERSION}" >/dev/null; then
+            prebaked_ciphermap="${candidate_bin}"
+            break
+          fi
+        done
+        if [ -n "${prebaked_ciphermap}" ]; then
+          echo "Using pre-installed zero-egress CipherMap binary at ${prebaked_ciphermap} (${CM_CLI_VERSION})"
+        elif [ -n "${effective_license}" ] && [ "$(uname -s)" = "Linux" ] && [ "$(uname -m)" = "x86_64" ]; then
           mkdir -p "${HOME}/.local/bin"
           hdr_tmp="$(mktemp)"
           bin_tmp="$(mktemp)"

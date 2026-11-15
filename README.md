@@ -5,16 +5,15 @@ Run zero-egress post-quantum cryptography (PQC) discovery across 12 languages, `
 [![Public GitHub Repo PQC Scanner](https://www.ciphermap.io/scan/badge/github/open-quantum-safe/liboqs-go)](https://www.ciphermap.io/scan?utm_source=action_readme&utm_medium=badge)
 
 - **Instant Public Repo Scorecard (Zero Install):** [https://www.ciphermap.io/scan](https://www.ciphermap.io/scan)
-- **Claim Free 7-Day Trial Key (`CIPHERMAP_LICENSE`):** [https://www.ciphermap.io/eval-pack#trial](https://www.ciphermap.io/eval-pack#trial)
-- **GitHub Integration Guide:** [https://www.ciphermap.io/github](https://www.ciphermap.io/github)
+- **Claim Free 7-Day Corporate Trial Key (`CIPHERMAP_LICENSE`):** [https://www.ciphermap.io/eval-pack#trial](https://www.ciphermap.io/eval-pack#trial)
+- **GitHub Integration & Air-Gapped Runner Guide:** [https://www.ciphermap.io/github](https://www.ciphermap.io/github)
 
-## How to Scan Private Repositories in GitHub Actions
+## 1. Enterprise Supply-Chain Hardened Workflow (`v1.0.6`)
 
-1. Claim your 7-day corporate work-email trial key (or paid Tier A/B key) at [`ciphermap.io/eval-pack#trial`](https://www.ciphermap.io/eval-pack#trial) and save it in **Settings → Secrets and variables → Actions** as `CIPHERMAP_LICENSE`.
-2. Add `.github/workflows/ciphermap-pqc.yml`:
+Following industry-wide GitHub Enterprise SHA-pinning and StepSecurity `harden-runner` policies (`CVE-2025-30066` mitigation), we recommend pinning actions to full 40-character commit SHAs and restricting runner egress:
 
 ```yaml
-name: CipherMap PQC & CNSA 2.0 Gate
+name: CipherMap PQC, CNSA 2.0 & Signed CBOM Gate
 on:
   pull_request:
   push:
@@ -28,33 +27,50 @@ jobs:
   pqc:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: Ciphermap-io/ciphermap-action@v1
+      - name: Harden GitHub Runner (Optional — StepSecurity)
+        uses: step-security/harden-runner@ec9f2d5744a09debf3a187a3f4f675c53b671911 # v2.13.0
+        with:
+          egress-policy: block
+          allowed-endpoints: >
+            github.com:443
+            api.github.com:443
+            www.ciphermap.io:443
+
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Run CipherMap Zero-Egress PQC & CBOM Gate
+        uses: Ciphermap-io/ciphermap-action@v1 # Pin to the v1.0.6 40-char commit SHA in regulated orgs
         with:
           fail-on: high
           target: cnsa-2.0
+          include-archives: "true"
           cbom-file: ciphermap-cbom-1.7.json
+          cbom-spec-version: "1.7"
           license-key: ${{ secrets.CIPHERMAP_LICENSE }}
 ```
 
-When `license-key` (or `CIPHERMAP_LICENSE`) is supplied on `ubuntu-latest` (`Linux x86_64`), the Action authenticates against `https://www.ciphermap.io/api/dl/ci-cli`, verifies the `X-CipherMap-SHA256` digest + pinned `cli-version`, and runs `--offline --no-telemetry` inside your private runner.
+### Zero-Egress Air-Gapped Self-Hosted Runners (`0` Network Calls)
+If `/usr/local/bin/ciphermap` (or `~/.local/bin/ciphermap`) matching `cli-version` (`v1.0.6`) is pre-installed on a self-hosted GitHub Enterprise Server runner image, `ciphermap-action` automatically detects the local binary and executes **zero** outbound `curl` calls — running 100% under `egress-policy: block` without even needing `www.ciphermap.io:443` allowlisted.
 
-## Inputs
+When running on ephemeral `ubuntu-latest` (`Linux x86_64`) without a pre-baked binary, supplying `license-key` authenticates against `https://www.ciphermap.io/api/dl/ci-cli`, verifies the `X-CipherMap-SHA256` digest + pinned `CipherMap Version v1.0.6` string, and executes `scan` / `cbom` with `--offline --no-telemetry`.
+
+## 2. Inputs
 
 | Input | Default | Meaning |
 |---|---|---|
-| `fail-on` | `high` | Severity that fails the build (`info`…`critical`, `none`) |
+| `fail-on` | `high` | Severity that fails the build (`info`, `low`, `medium`, `high`, `critical`, `none`) |
 | `target` | — | Compliance profile (`cnsa-2.0`, `fips-140-3`, `nist-sp-800-56b`, `bsi-tr-02102`, `anssi-pqc`) |
-| `license-key` | — | Signed `CIPHERMAP_LICENSE` secret (`CIPHERMAP-TEAM-...`, `CIPHERMAP-ENTERPRISE-...`, or 7-day trial key) |
+| `license-key` | — | Signed `CIPHERMAP_LICENSE` secret (`CIPHERMAP-TEAM-...`, `CIPHERMAP-ENTERPRISE-...`, or 7-day corporate trial key) |
+| `cli-version` | `v1.0.6` | Exact CipherMap CLI version verified before scan execution |
 | `sarif-file` | `ciphermap.sarif` | Output path for SARIF 2.1.0 report |
 | `upload-sarif` | `true` | Upload SARIF to GitHub Security → Code Scanning (`if: always()`) |
 | `cbom-file` | — | Emit deterministic CycloneDX 1.6 / 1.7 CBOM JSON |
 | `cbom-spec-version` | `1.7` | CycloneDX CBOM specification version (`1.6` or `1.7`) |
-| `include-archives` | `false` | Inspect `.jar`, `.war`, `.ear`, `.whl`, `.apk`, `.nupkg` archives |
+| `cbom-html-file` | — | Emit standalone zero-backend Interactive HTML CBOM Explorer |
+| `attest-slsa` | `false` | Emit Hybrid PQC (`Ed25519 + ML-DSA-65`) SLSA v1.1 DSSE provenance |
+| `compliance-framework` | — | Emit regulatory working paper (`cnsa-2.0`, `pci-dss-4`, `fedramp`, `cmmc`, `eu-dora`, `oscal`, `all`, etc.) |
+| `wrapper-target` | — | Generate zero-code PQC edge wrapper (`envoy`, `nginx`, `haproxy`, `k8s-sidecar`, `ipsec`, `cert-manager`) |
+| `include-archives` | `false` | Inspect `.jar`, `.war`, `.ear`, `.whl`, `.apk`, `.aab`, `.nupkg`, `.zip` archives |
+| `baseline-file` | — | Gate PRs on continuous PQC drift against a prior baseline JSON |
+| `vendor-sla` | `false` | Emit Third-Party Vendor PQC SLA procurement scorecard |
 | `args` | — | Extra whitespace-delimited CLI arguments |
-
-## Security & Zero-Egress Guarantee
-
-- **Zero Source Code Egress:** All AST, bytecode (`.jar`, `.whl`), keystore (`.jks`, `.p12`), and TLS/IaC analysis runs locally inside your GitHub Actions runner with `--offline --no-telemetry`.
-- **Cryptographic Binary Verification:** Verifies `X-CipherMap-SHA256` and pinned CLI version (`v1.0.5`) prior to execution.
-- **License:** MIT (Composite GitHub Action wrapper). Full documentation and Bitbucket / self-hosted runner templates at [`ciphermap.io/github`](https://www.ciphermap.io/github).
