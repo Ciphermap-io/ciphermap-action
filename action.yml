@@ -171,7 +171,15 @@ runs:
           }
           installer="$(mktemp)"
           trap 'rm -f "$installer"' EXIT
-          curl --proto '=https' --tlsv1.2 --fail --silent --show-error --location --max-time 60 --output "$installer" https://www.ciphermap.io/install.sh
+          http_code="$(curl --proto '=https' --tlsv1.2 --silent --show-error --location --max-time 60 -w '%{http_code}' --output "$installer" "https://www.ciphermap.io/install.sh?src=github-action" || true)"
+          if [ "${http_code}" = "503" ]; then
+            echo "::error title=CipherMap License Key Required on Ephemeral Runners::Public /install.sh is staged; configure 'license-key: \${{ secrets.CIPHERMAP_LICENSE }}' (claim a free 7-day corporate trial key in 60s at https://www.ciphermap.io/eval-pack#trial) on Linux x86_64 to authenticate via /api/dl/ci-cli, or pre-bake /usr/local/bin/ciphermap (${CM_CLI_VERSION}) on your self-hosted runner." >&2
+            exit 1
+          fi
+          [ "${http_code}" = "200" ] || {
+            echo "Failed to fetch CipherMap installer (HTTP ${http_code})" >&2
+            exit 1
+          }
           actual_installer_sha256="$(sha256sum "$installer" | awk '{print $1}')"
           [[ "${actual_installer_sha256}" == "${CM_INSTALLER_SHA256}" ]] || {
             echo "CipherMap ${CM_CLI_VERSION} installer digest mismatch; refusing a moving installer" >&2

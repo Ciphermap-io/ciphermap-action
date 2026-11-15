@@ -74,3 +74,30 @@ When running on ephemeral `ubuntu-latest` (`Linux x86_64`) without a pre-baked b
 | `baseline-file` | — | Gate PRs on continuous PQC drift against a prior baseline JSON |
 | `vendor-sla` | `false` | Emit Third-Party Vendor PQC SLA procurement scorecard |
 | `args` | — | Extra whitespace-delimited CLI arguments |
+
+## 3. OWASP Dependency-Track (`v4.12–4.14` & `v5.x Hyades`) CBOM Ingestion
+
+CipherMap supports **both** native OWASP Dependency-Track `v5.x` (`Hyades` `cryptographic-asset` ingestion) **and** Dependency-Track `v4.12.x–4.14.x` (automatically projecting `cryptographic-asset` components into lossless `cdx:cbom:*` file carriers with async token polling and readback verification so `4.x` never silently drops cryptographic assets):
+
+```yaml
+      - name: Push Signed CBOM to OWASP Dependency-Track (v4 or v5 Auto-Detect)
+        if: env.DTRACK_API_KEY != ''
+        env:
+          CIPHERMAP_LICENSE: ${{ secrets.CIPHERMAP_LICENSE }}
+          DTRACK_URL: ${{ secrets.DTRACK_URL }}
+          DTRACK_API_KEY: ${{ secrets.DTRACK_API_KEY }}
+          DTRACK_PROJECT_UUID: ${{ secrets.DTRACK_PROJECT_UUID }}
+        run: |
+          "${CIPHERMAP_EXECUTABLE}" cbom . \
+            --offline \
+            --include-archives \
+            --spec-version 1.6 \
+            --dt-compat auto \
+            --push-url "${DTRACK_URL}" \
+            --api-key "${DTRACK_API_KEY}" \
+            --project-id "${DTRACK_PROJECT_UUID}"
+```
+
+## 4. Shift-Left Companion: Local `stdio` MCP Referee (`Claude Code`, `Cursor`, `Windsurf`)
+
+Pair this CI gate with [`Ciphermap-io/ciphermap-mcp`](https://github.com/Ciphermap-io/ciphermap-mcp) (`io.github.Ciphermap-io/ciphermap-mcp` on the Official MCP Registry) and `ciphermap immunity emit-agent-rules` so AI coding assistants never introduce Round-3 `kyber768` drafts, `RSA-2048`/`SHA-1` regressions, or Trojan Unicode `.cursorrules` / `CLAUDE.md` configs (`IMM-AICFG-001`) before opening a PR.
