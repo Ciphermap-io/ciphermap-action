@@ -81,21 +81,21 @@ CipherMap supports **both** native OWASP Dependency-Track `v5.x` (`Hyades` `cryp
 
 ```yaml
       - name: Push Signed CBOM to OWASP Dependency-Track (v4 or v5 Auto-Detect)
-        if: env.DTRACK_API_KEY != ''
         env:
           CIPHERMAP_LICENSE: ${{ secrets.CIPHERMAP_LICENSE }}
+          CIPHERMAP_DEPENDENCY_TRACK_API_KEY: ${{ secrets.DTRACK_API_KEY }}
           DTRACK_URL: ${{ secrets.DTRACK_URL }}
-          DTRACK_API_KEY: ${{ secrets.DTRACK_API_KEY }}
           DTRACK_PROJECT_UUID: ${{ secrets.DTRACK_PROJECT_UUID }}
         run: |
-          "${CIPHERMAP_EXECUTABLE}" cbom . \
-            --offline \
-            --include-archives \
-            --spec-version 1.6 \
-            --dt-compat auto \
-            --push-url "${DTRACK_URL}" \
-            --api-key "${DTRACK_API_KEY}" \
-            --project-id "${DTRACK_PROJECT_UUID}"
+          if [ -n "${CIPHERMAP_DEPENDENCY_TRACK_API_KEY:-}" ]; then
+            "${CIPHERMAP_EXECUTABLE:-ciphermap}" cbom . \
+              --offline \
+              --include-archives \
+              --spec-version 1.6 \
+              --dt-compat auto \
+              --push-url "${DTRACK_URL}" \
+              --project-id "${DTRACK_PROJECT_UUID}"
+          fi
 ```
 
 ## 4. Shift-Left Companion: Local `stdio` MCP Referee (`Claude Code`, `Cursor`, `Windsurf`)
