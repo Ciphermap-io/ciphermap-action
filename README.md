@@ -15,16 +15,17 @@ Zero-egress post-quantum cryptography (PQC) discovery across **12 languages**, `
 
 ---
 
-## 1. Quickstart (`5 Seconds`)
+## 1. Quickstart (`5 Seconds` — Zero Secrets via GitHub OIDC)
 
-Add `.github/workflows/ciphermap-pqc.yml` and store your trial or enterprise key as `CIPHERMAP_LICENSE` in **Settings → Secrets and variables → Actions**:
+Add `.github/workflows/ciphermap-pqc.yml` with `id-token: write` to run **keyless Free 12-language PQC Discovery + GitHub Security Code Scanning SARIF 2.1.0** across Linux, macOS, and Windows (`x64` & `arm64`) runners — no API keys or secrets required:
 
 ```yaml
-name: PQC & CBOM Security Gate
+name: PQC Security Scan (Keyless OIDC)
 on: [push, pull_request]
 
 permissions:
   contents: read
+  id-token: write          # Keyless GitHub OIDC runner verification (zero secrets)
   security-events: write   # Uploads SARIF 2.1.0 to GitHub Security -> Code Scanning
 
 jobs:
@@ -32,6 +33,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: Ciphermap-io/ciphermap-action@v1
+        with:
+          fail-on: high
+```
+
+### Add `CIPHERMAP_LICENSE` for CNSA 2.0 Gate + CycloneDX 1.7 CBOM (7-Day Trial or Enterprise)
+
+Store your 7-day corporate trial or Enterprise license key as `CIPHERMAP_LICENSE` in **Settings → Secrets and variables → Actions** to unlock `--target cnsa-2.0`, CycloneDX 1.7 CBOMs, HTML CBOM Explorer, and 16-mandate compliance reports:
+
+```yaml
       - uses: Ciphermap-io/ciphermap-action@v1
         with:
           fail-on: high
@@ -87,7 +98,7 @@ jobs:
 ### Air-Gapped Self-Hosted Runners (`0` Outbound Network Calls)
 If `/usr/local/bin/ciphermap` (or `~/.local/bin/ciphermap`) matching `cli-version` (`v1.0.6`) is pre-baked onto a self-hosted GitHub Enterprise Server runner image, `ciphermap-action` automatically detects the local binary and makes **zero** outbound `curl` calls — running 100% under `egress-policy: block` without even needing `www.ciphermap.io:443` allowlisted.
 
-On ephemeral `ubuntu-latest` (`Linux x86_64`) runners without a pre-baked binary, `license-key` authenticates against `https://www.ciphermap.io/api/dl/ci-cli`, verifies the `64`-hex `X-CipherMap-SHA256` digest + pinned `CipherMap Version v1.0.6` banner, and runs `scan` / `cbom` with `--offline --no-telemetry`.
+On ephemeral `ubuntu-latest`, `macos-latest`, or `windows-latest` (`amd64` / `arm64`) runners without a pre-baked binary, `license-key` (or keyless GitHub Actions OIDC when `id-token: write` is enabled) authenticates against `https://www.ciphermap.io/api/dl/ci-cli`, verifies the `64`-hex `X-CipherMap-SHA256` digest + pinned `CipherMap Version v1.0.6` banner, and runs `scan` / `cbom` with `--offline --no-telemetry`.
 
 ---
 
@@ -110,7 +121,7 @@ On ephemeral `ubuntu-latest` (`Linux x86_64`) runners without a pre-baked binary
 | `pqc-device-key` | No | `""` | Path to composite `Ed25519 + ML-DSA-65` seed JSON file when `attest-slsa: "true"` |
 | `compliance-framework` | No | `""` | Emit regulatory report (`cnsa-2.0`, `pci-dss-4`, `fedramp`, `cmmc`, `eu-dora`, `oscal`, `crosswalk`, `all`, etc.) |
 | `compliance-output` | No | `""` | Custom output path for `compliance-framework` report |
-| `wrapper-target` | No | `""` | Generate zero-code PQC edge wrapper (`auto`, `envoy`, `nginx`, `haproxy`, `k8s-sidecar`, `ipsec`, `cert-manager`, `cnsa-2.0`) |
+| `wrapper-target` | No | `""` | Generate zero-code PQC edge wrapper (`auto`, `envoy`, `nginx`, `haproxy`, `caddy`, `traefik`, `apache`, `stunnel`, `k8s-sidecar`, `ipsec`, `cert-manager`, `cnsa-2.0`) |
 | `wrapper-output-dir` | No | `""` | Output directory for `wrapper-target` artifacts |
 | `include-archives` | No | `false` | Inspect packaged `.jar`, `.war`, `.ear`, `.whl`, `.apk`, `.aab`, `.nupkg`, `.zip` archives |
 | `baseline-file` | No | `""` | Compare against a prior scan JSON baseline to gate PRs on continuous PQC drift |

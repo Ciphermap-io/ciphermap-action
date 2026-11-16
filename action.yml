@@ -47,7 +47,7 @@ inputs:
   installer-sha256:
     description: "SHA-256 of install.sh for the pinned CLI release"
     required: false
-    default: "f28b1bb75700bdff32867ddb3b61857bed421aa8cc088c4e665f4fbc3017c797"
+    default: "4e79ec7f85d3c1e2c149c868edb106500648597d6cc8eb9cb76b434d90065cd6"
   args:
     description: "Extra whitespace-delimited scan arguments; use configuration for values containing spaces"
     required: false
@@ -81,7 +81,7 @@ inputs:
     required: false
     default: ""
   wrapper-target:
-    description: "Optional zero-code PQC edge wrapper target to generate (auto, nginx, envoy, haproxy, k8s-sidecar, ipsec, cert-manager, cnsa-2.0)"
+    description: "Optional zero-code PQC edge wrapper target to generate (auto, nginx, envoy, haproxy, caddy, traefik, apache, stunnel, k8s-sidecar, ipsec, cert-manager, cnsa-2.0)"
     required: false
     default: ""
   wrapper-output-dir:
@@ -137,34 +137,76 @@ runs:
           exit 1
         }
         effective_license="${CM_LICENSE_KEY:-${CIPHERMAP_LICENSE:-}}"
+        raw_os="$(uname -s 2>/dev/null || echo Linux)"
+        raw_arch="$(uname -m 2>/dev/null || echo x86_64)"
+        case "${raw_os}" in
+          Linux*)               cm_os="linux";   exe_suffix="" ;;
+          Darwin*)              cm_os="darwin";  exe_suffix="" ;;
+          MINGW*|MSYS*|CYGWIN*) cm_os="windows"; exe_suffix=".exe" ;;
+          *)                    cm_os="";        exe_suffix="" ;;
+        esac
+        case "${raw_arch}" in
+          x86_64|amd64)  cm_arch="amd64" ;;
+          aarch64|arm64) cm_arch="arm64" ;;
+          *)             cm_arch="" ;;
+        esac
         prebaked_ciphermap=""
-        for candidate_bin in /usr/local/bin/ciphermap "${HOME}/.local/bin/ciphermap"; do
+        for candidate_bin in /usr/local/bin/ciphermap "${HOME}/.local/bin/ciphermap${exe_suffix}" "${HOME}/.cache/ciphermap/bin/ciphermap${exe_suffix}"; do
           if [ -x "${candidate_bin}" ] && "${candidate_bin}" version 2>/dev/null | grep -F "CipherMap Version ${CM_CLI_VERSION}" >/dev/null; then
             prebaked_ciphermap="${candidate_bin}"
             break
           fi
         done
+        auth_token="${effective_license}"
+        if [ -z "${auth_token}" ] && [ -n "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" ] && [ -n "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}" ]; then
+          oidc_sep="&"
+          case "${ACTIONS_ID_TOKEN_REQUEST_URL}" in
+            *\?*) oidc_sep="&" ;;
+            *)    oidc_sep="?" ;;
+          esac
+          oidc_json="$(curl --proto '=https' --tlsv1.2 --fail --silent --max-time 15 \
+            -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}${oidc_sep}audience=ciphermap-ci" || true)"
+          if [ -n "${oidc_json}" ]; then
+            if command -v python3 >/dev/null 2>&1; then
+              auth_token="$(printf '%s' "${oidc_json}" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("value",""))' 2>/dev/null || true)"
+            else
+              auth_token="$(printf '%s' "${oidc_json}" | sed -n 's/.*"value"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1)"
+            fi
+            if [ -n "${auth_token}" ]; then
+              echo "::add-mask::${auth_token}"
+            fi
+          fi
+        fi
         if [ -n "${prebaked_ciphermap}" ]; then
           echo "Using pre-installed zero-egress CipherMap binary at ${prebaked_ciphermap} (${CM_CLI_VERSION})"
-        elif [ -n "${effective_license}" ] && [ "$(uname -s)" = "Linux" ] && [ "$(uname -m)" = "x86_64" ]; then
+        elif [ -n "${auth_token}" ] && [ -n "${cm_os}" ] && [ -n "${cm_arch}" ]; then
           mkdir -p "${HOME}/.local/bin"
           hdr_tmp="$(mktemp)"
           bin_tmp="$(mktemp)"
           trap 'rm -f "$hdr_tmp" "$bin_tmp"' EXIT
           curl --proto '=https' --tlsv1.2 --fail --silent --show-error --max-time 60 \
-            -H "Authorization: Bearer ${effective_license}" \
+            -H "Authorization: Bearer ${auth_token}" \
             -H "X-CipherMap-CI-Provider: github-actions" \
             -D "$hdr_tmp" \
             --output "$bin_tmp" \
-            "https://www.ciphermap.io/api/dl/ci-cli"
+            "https://www.ciphermap.io/api/dl/ci-cli?os=${cm_os}&arch=${cm_arch}"
           expected_bin_sha="$(awk 'tolower($1)=="x-ciphermap-sha256:" {gsub(/\r/,"",$2); print $2}' "$hdr_tmp")"
           [[ "${expected_bin_sha}" =~ ^[0-9a-f]{64}$ ]] || {
             echo "Missing X-CipherMap-SHA256 header from /api/dl/ci-cli" >&2
             exit 1
           }
-          echo "${expected_bin_sha}  ${bin_tmp}" | sha256sum --check --status
+          if command -v sha256sum >/dev/null 2>&1; then
+            echo "${expected_bin_sha}  ${bin_tmp}" | sha256sum --check --status
+          else
+            actual_bin_sha="$(shasum -a 256 "$bin_tmp" | awk '{print $1}')"
+            [ "${actual_bin_sha}" = "${expected_bin_sha}" ] || {
+              echo "SHA-256 mismatch on downloaded CipherMap binary" >&2
+              exit 1
+            }
+          fi
           chmod 0755 "$bin_tmp"
-          mv "$bin_tmp" "${HOME}/.local/bin/ciphermap"
+          mv "$bin_tmp" "${HOME}/.local/bin/ciphermap${exe_suffix}"
         else
           [[ "${CM_INSTALLER_SHA256}" =~ ^[0-9a-f]{64}$ ]] || {
             echo "Invalid pinned installer SHA-256" >&2
@@ -174,14 +216,18 @@ runs:
           trap 'rm -f "$installer"' EXIT
           http_code="$(curl --proto '=https' --tlsv1.2 --silent --show-error --location --max-time 60 -w '%{http_code}' --output "$installer" "https://www.ciphermap.io/install.sh?src=github-action" || true)"
           if [ "${http_code}" = "503" ]; then
-            echo "::error title=CipherMap License Key Required on Ephemeral Runners::Public /install.sh is staged; configure 'license-key: \${{ secrets.CIPHERMAP_LICENSE }}' (claim a free 7-day corporate trial key in 60s at https://www.ciphermap.io/eval-pack#trial) on Linux x86_64 to authenticate via /api/dl/ci-cli, or pre-bake /usr/local/bin/ciphermap (${CM_CLI_VERSION}) on your self-hosted runner." >&2
+            echo "::error title=Enable Keyless GitHub OIDC or Pass License Key::Add 'id-token: write' to job permissions for keyless Free PQC + SARIF scanning, or pass 'license-key: \${{ secrets.CIPHERMAP_LICENSE }}' (free 7-day corporate trial at https://www.ciphermap.io/eval-pack), or pre-bake /usr/local/bin/ciphermap (${CM_CLI_VERSION}) on your self-hosted runner." >&2
             exit 1
           fi
           [ "${http_code}" = "200" ] || {
             echo "Failed to fetch CipherMap installer (HTTP ${http_code})" >&2
             exit 1
           }
-          actual_installer_sha256="$(sha256sum "$installer" | awk '{print $1}')"
+          if command -v sha256sum >/dev/null 2>&1; then
+            actual_installer_sha256="$(sha256sum "$installer" | awk '{print $1}')"
+          else
+            actual_installer_sha256="$(shasum -a 256 "$installer" | awk '{print $1}')"
+          fi
           [[ "${actual_installer_sha256}" == "${CM_INSTALLER_SHA256}" ]] || {
             echo "CipherMap ${CM_CLI_VERSION} installer digest mismatch; refusing a moving installer" >&2
             exit 1
@@ -193,10 +239,12 @@ runs:
         # destination rule so a stale system-wide /usr/local/bin/ciphermap on a
         # non-root runner is never preferred over the freshly installed binary.
         echo "${HOME}/.local/bin" >> "${GITHUB_PATH}"
-        if [ -w /usr/local/bin ] && [ -x /usr/local/bin/ciphermap ]; then
+        if [ -n "${prebaked_ciphermap}" ]; then
+          installed_ciphermap="${prebaked_ciphermap}"
+        elif [ -w /usr/local/bin ] && [ -x /usr/local/bin/ciphermap ]; then
           installed_ciphermap=/usr/local/bin/ciphermap
-        elif [ -x "${HOME}/.local/bin/ciphermap" ]; then
-          installed_ciphermap="${HOME}/.local/bin/ciphermap"
+        elif [ -x "${HOME}/.local/bin/ciphermap${exe_suffix}" ]; then
+          installed_ciphermap="${HOME}/.local/bin/ciphermap${exe_suffix}"
         elif [ -x /usr/local/bin/ciphermap ]; then
           installed_ciphermap=/usr/local/bin/ciphermap
         else
@@ -336,7 +384,7 @@ runs:
           "${CIPHERMAP_EXECUTABLE}" "${comp_args[@]}"
         fi
         if [ -n "${CM_WRAPPER_TARGET}" ]; then
-          [[ "${CM_WRAPPER_TARGET}" =~ ^(auto|nginx|envoy|haproxy|k8s-sidecar|ipsec|cert-manager|cnsa-2\.0)$ ]] || {
+          [[ "${CM_WRAPPER_TARGET}" =~ ^(auto|nginx|envoy|haproxy|caddy|traefik|apache|stunnel|k8s-sidecar|ipsec|cert-manager|cnsa-2\.0)$ ]] || {
             echo "Unsupported wrapper-target: ${CM_WRAPPER_TARGET}" >&2
             exit 1
           }
