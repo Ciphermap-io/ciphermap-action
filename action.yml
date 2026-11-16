@@ -280,7 +280,10 @@ runs:
         if [ -n "${CM_LICENSE_KEY}" ]; then
           export CIPHERMAP_LICENSE="${CM_LICENSE_KEY}"
         fi
-        args=(scan . --offline --no-telemetry --fail-on "${CM_FAIL_ON}" --format sarif -o "${CM_SARIF_FILE}")
+        args=(scan . --offline --no-telemetry --format sarif -o "${CM_SARIF_FILE}")
+        if [ -n "${CM_FAIL_ON}" ] && [ "${CM_FAIL_ON}" != "none" ]; then
+          args+=(--fail-on "${CM_FAIL_ON}")
+        fi
         if [ -n "${CM_TARGET}" ]; then
           args+=(--target "${CM_TARGET}")
         fi
