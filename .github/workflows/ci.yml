@@ -50,3 +50,47 @@ jobs:
           done
           shellcheck -S error "$tmpdir"/step_*.sh
           rm -rf "$tmpdir"
+
+      - name: Execute Composite Steps End-to-End Against Stderr-Version Binary
+        run: |
+          mkdir -p "$HOME/.local/bin"
+          cat > "$HOME/.local/bin/ciphermap" <<'MOCK'
+          #!/usr/bin/env bash
+          if [ "${1:-}" = "version" ]; then
+            echo "CipherMap Version v1.0.6" >&2
+            exit 0
+          fi
+          if [ "${1:-}" = "scan" ]; then
+            echo '{"version":"2.1.0","runs":[]}' > ciphermap.sarif
+            exit 0
+          fi
+          if [ "${1:-}" = "cbom" ]; then
+            echo '{"bomFormat":"CycloneDX","specVersion":"1.7"}' > cbom.cdx.json
+            exit 0
+          fi
+          exit 0
+          MOCK
+          chmod +x "$HOME/.local/bin/ciphermap"
+
+          work="$(mktemp -d)"
+          ruby -ryaml -e '
+            doc = YAML.load_file("action.yml")
+            steps = doc.dig("runs", "steps")
+            File.write(ARGV[0] + "/s0.sh", steps[0]["run"])
+            File.write(ARGV[0] + "/s1.sh", steps[1]["run"])
+            File.write(ARGV[0] + "/s3.sh", steps[3]["run"])
+          ' "$work"
+          export GITHUB_PATH="$work/gh_path" GITHUB_ENV="$work/gh_env" GITHUB_OUTPUT="$work/gh_out"
+          touch "$GITHUB_PATH" "$GITHUB_ENV" "$GITHUB_OUTPUT"
+          export CM_CLI_VERSION="v1.0.6"
+          export CM_INSTALLER_SHA256="f28b1bb75700bdff32867ddb3b61857bed421aa8cc088c4e665f4fbc3017c797"
+          export CM_LICENSE_KEY=""
+          (cd "$work" && bash s0.sh)
+          set -a
+          source "$GITHUB_ENV"
+          set +a
+          export CM_FAIL_ON="high" CM_TARGET="cnsa-2.0" CM_SARIF_FILE="ciphermap.sarif" CM_INCLUDE_ARCHIVES="false" CM_EXTRA_ARGS=""
+          (cd "$work" && bash s1.sh && test -s ciphermap.sarif)
+          export CM_CBOM_FILE="cbom.cdx.json" CM_CBOM_SPEC_VERSION="1.7" CM_CBOM_HTML_FILE="" CM_ATTEST_SLSA="false" CM_PQC_DEVICE_KEY="" CM_COMPLIANCE_FRAMEWORK="" CM_COMPLIANCE_OUTPUT="" CM_WRAPPER_TARGET="" CM_WRAPPER_OUT_DIR="" CM_BASELINE_FILE="" CM_VENDOR_SLA="false"
+          (cd "$work" && bash s3.sh && test -s cbom.cdx.json)
+          rm -rf "$work" "$HOME/.local/bin/ciphermap"

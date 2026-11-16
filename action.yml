@@ -151,8 +151,8 @@ runs:
           *)             cm_arch="" ;;
         esac
         prebaked_ciphermap=""
-        for candidate_bin in /usr/local/bin/ciphermap "${HOME}/.local/bin/ciphermap${exe_suffix}" "${HOME}/.cache/ciphermap/bin/ciphermap${exe_suffix}"; do
-          if [ -x "${candidate_bin}" ] && "${candidate_bin}" version 2>/dev/null | grep -F "CipherMap Version ${CM_CLI_VERSION}" >/dev/null; then
+        for candidate_bin in /usr/local/bin/ciphermap /opt/homebrew/bin/ciphermap "${HOME}/.local/bin/ciphermap${exe_suffix}" "${HOME}/.cache/ciphermap/bin/ciphermap${exe_suffix}"; do
+          if [ -x "${candidate_bin}" ] && "${candidate_bin}" version 2>&1 | grep -F "CipherMap Version ${CM_CLI_VERSION}" >/dev/null; then
             prebaked_ciphermap="${candidate_bin}"
             break
           fi
@@ -294,15 +294,15 @@ runs:
         # array. Quoted array expansion prevents repository filenames from
         # turning '*' or '?' into extra CLI arguments. Complex arguments that
         # contain spaces should use a checked-in CipherMap configuration.
-        extra_args=()
         if [ -n "${CM_EXTRA_ARGS}" ]; then
           normalized_extra="${CM_EXTRA_ARGS//$'\r'/}"
           normalized_extra="${normalized_extra//$'\n'/ }"
           read -r -a extra_args <<< "${normalized_extra}"
+          args+=("${extra_args[@]+"${extra_args[@]}"}")
         fi
         rm -f -- "${CM_SARIF_FILE}"
         echo "invoked=true" >> "${GITHUB_OUTPUT}"
-        "${CIPHERMAP_EXECUTABLE}" "${args[@]}" "${extra_args[@]}"
+        "${CIPHERMAP_EXECUTABLE}" "${args[@]}"
 
     - name: Check the SARIF report exists
       if: ${{ always() && inputs.upload-sarif == 'true' && steps.scan.outputs.invoked == 'true' }}
