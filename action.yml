@@ -251,7 +251,7 @@ runs:
           echo "CipherMap installer completed without publishing the expected executable" >&2
           exit 1
         fi
-        "${installed_ciphermap}" version | grep -F "CipherMap Version ${CM_CLI_VERSION}" >/dev/null || {
+        "${installed_ciphermap}" version 2>&1 | grep -F "CipherMap Version ${CM_CLI_VERSION}" >/dev/null || {
           echo "Installed CipherMap does not match pinned version ${CM_CLI_VERSION}" >&2
           exit 1
         }
