@@ -78,7 +78,7 @@ jobs:
             steps = doc.dig("runs", "steps")
             File.write(ARGV[0] + "/s0.sh", steps[0]["run"])
             File.write(ARGV[0] + "/s1.sh", steps[1]["run"])
-            File.write(ARGV[0] + "/s3.sh", steps[3]["run"])
+            File.write(ARGV[0] + "/s4.sh", steps[4]["run"])
           ' "$work"
           export GITHUB_PATH="$work/gh_path" GITHUB_ENV="$work/gh_env" GITHUB_OUTPUT="$work/gh_out"
           touch "$GITHUB_PATH" "$GITHUB_ENV" "$GITHUB_OUTPUT"
@@ -92,5 +92,5 @@ jobs:
           export CM_FAIL_ON="high" CM_TARGET="cnsa-2.0" CM_SARIF_FILE="ciphermap.sarif" CM_INCLUDE_ARCHIVES="false" CM_EXTRA_ARGS=""
           (cd "$work" && bash s1.sh && test -s ciphermap.sarif)
           export CM_CBOM_FILE="cbom.cdx.json" CM_CBOM_SPEC_VERSION="1.7" CM_CBOM_HTML_FILE="" CM_ATTEST_SLSA="false" CM_PQC_DEVICE_KEY="" CM_COMPLIANCE_FRAMEWORK="" CM_COMPLIANCE_OUTPUT="" CM_WRAPPER_TARGET="" CM_WRAPPER_OUT_DIR="" CM_BASELINE_FILE="" CM_VENDOR_SLA="false"
-          (cd "$work" && bash s3.sh && test -s cbom.cdx.json)
+          (cd "$work" && bash s4.sh && test -s cbom.cdx.json)
           rm -rf "$work" "$HOME/.local/bin/ciphermap"
