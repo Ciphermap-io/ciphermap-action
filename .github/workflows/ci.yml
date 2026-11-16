@@ -40,6 +40,7 @@ jobs:
             doc = YAML.load_file("action.yml")
             (doc.dig("runs", "steps") || []).each_with_index do |step, idx|
               next unless step["run"]
+              abort("Forbidden GitHub expression (${{ ... }}) inside composite run: step #{idx}") if step["run"].include?("${{")
               File.write(File.join(ARGV[0], "step_#{idx}.sh"), "#!/usr/bin/env bash\n" + step["run"])
             end
           ' "$tmpdir"
