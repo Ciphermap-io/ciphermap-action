@@ -1,0 +1,50 @@
+name: Validate Action Metadata & Shell Safety
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Validate action.yml & Composite Shell Steps
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Validate GitHub Marketplace Metadata & Composite Steps
+        run: |
+          ruby -ryaml -e '
+            doc = YAML.load_file("action.yml")
+            abort("Missing name") unless doc["name"].is_a?(String) && !doc["name"].empty?
+            abort("Missing author") unless doc["author"] == "CipherMap"
+            desc = doc["description"].to_s
+            abort("Description must be 1..125 chars without trailing period (got #{desc.length})") if desc.empty? || desc.length > 125 || desc.end_with?(".")
+            abort("Invalid branding") unless doc.dig("branding", "icon") == "shield" && doc.dig("branding", "color") == "purple"
+            abort("Must be composite") unless doc.dig("runs", "using") == "composite"
+            steps = doc.dig("runs", "steps") || []
+            abort("Expected >= 5 composite steps") if steps.length < 5
+            sha_default = doc.dig("inputs", "installer-sha256", "default").to_s
+            abort("Invalid 64-hex installer-sha256 default") unless sha_default.match?(/\A[0-9a-f]{64}\z/)
+            puts "Validated #{doc["name"]} (#{desc.length}/125 chars, #{steps.length} steps)"
+          '
+
+      - name: Run Bash Syntax & ShellCheck Error Gate on All Composite Steps
+        run: |
+          tmpdir="$(mktemp -d)"
+          ruby -ryaml -e '
+            doc = YAML.load_file("action.yml")
+            (doc.dig("runs", "steps") || []).each_with_index do |step, idx|
+              next unless step["run"]
+              File.write(File.join(ARGV[0], "step_#{idx}.sh"), "#!/usr/bin/env bash\n" + step["run"])
+            end
+          ' "$tmpdir"
+          for f in "$tmpdir"/step_*.sh; do
+            bash -n "$f"
+          done
+          shellcheck -S error "$tmpdir"/step_*.sh
+          rm -rf "$tmpdir"

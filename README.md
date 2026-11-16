@@ -1,16 +1,49 @@
-# CipherMap GitHub Action — Post-Quantum Cryptography, SARIF Code Scanning & Signed CycloneDX 1.7 CBOM
+# CipherMap PQC & CBOM Scan — GitHub Action
 
-Run zero-egress post-quantum cryptography (PQC) discovery across 12 languages, `.jar`/`.whl` archives, `.jks`/`.p12` keystores, and TLS/IaC configs directly inside your own GitHub Actions runner — uploading SARIF 2.1.0 to the **GitHub Security → Code Scanning** tab and generating signed **CycloneDX 1.7 CBOM** artifacts with zero source code leaving your workflow.
+[![Validate Action Metadata & Shell Safety](https://github.com/Ciphermap-io/ciphermap-action/actions/workflows/ci.yml/badge.svg)](https://github.com/Ciphermap-io/ciphermap-action/actions/workflows/ci.yml)
+[![Latest Release](https://img.shields.io/github/v/release/Ciphermap-io/ciphermap-action?label=release&color=7c3aed)](https://github.com/Ciphermap-io/ciphermap-action/releases/latest)
+[![CycloneDX CBOM](https://img.shields.io/badge/CycloneDX-1.6%20%26%201.7%20CBOM-0ea5e9)](https://cyclonedx.org/tool-center/)
+[![SARIF 2.1.0](https://img.shields.io/badge/GitHub%20Code%20Scanning-SARIF%202.1.0-10b981)](https://www.ciphermap.io/github)
+[![License: MIT](https://img.shields.io/badge/License-MIT-slate.svg)](LICENSE)
 
-[![Public GitHub Repo PQC Scanner](https://www.ciphermap.io/scan/badge/github/open-quantum-safe/liboqs-go)](https://www.ciphermap.io/scan?utm_source=action_readme&utm_medium=badge)
+Zero-egress post-quantum cryptography (PQC) discovery across **12 languages**, `.jar`/`.whl` archives, `.jks`/`.p12` keystores, and TLS/IaC configs directly inside your GitHub Actions runner — uploading **SARIF 2.1.0** to **GitHub Security → Code Scanning** and generating deterministic **CycloneDX 1.7 (ECMA-424) CBOM** artifacts with **zero source code leaving your workflow**.
 
-- **Instant Public Repo Scorecard (Zero Install):** [https://www.ciphermap.io/scan](https://www.ciphermap.io/scan)
-- **Claim Free 7-Day Corporate Trial Key (`CIPHERMAP_LICENSE`):** [https://www.ciphermap.io/eval-pack#trial](https://www.ciphermap.io/eval-pack#trial)
-- **GitHub Integration & Air-Gapped Runner Guide:** [https://www.ciphermap.io/github](https://www.ciphermap.io/github)
+- **5-Second Copy-Paste Quickstart** below · **Zero-Install Public Repo Scorecard:** [ciphermap.io/scan](https://www.ciphermap.io/scan)
+- **Claim Free 7-Day Corporate Trial Key (`CIPHERMAP_LICENSE`):** [ciphermap.io/eval-pack#trial](https://www.ciphermap.io/eval-pack#trial)
+- **Dedicated GitHub Actions & Air-Gapped Runner Guide:** [ciphermap.io/github](https://www.ciphermap.io/github)
 
-## 1. Enterprise Supply-Chain Hardened Workflow (`v1.0.6`)
+---
 
-Following industry-wide GitHub Enterprise SHA-pinning and StepSecurity `harden-runner` policies (`CVE-2025-30066` mitigation), we recommend pinning actions to full 40-character commit SHAs and restricting runner egress:
+## 1. Quickstart (`5 Seconds`)
+
+Add `.github/workflows/ciphermap-pqc.yml` and store your trial or enterprise key as `CIPHERMAP_LICENSE` in **Settings → Secrets and variables → Actions**:
+
+```yaml
+name: PQC & CBOM Security Gate
+on: [push, pull_request]
+
+permissions:
+  contents: read
+  security-events: write   # Uploads SARIF 2.1.0 to GitHub Security -> Code Scanning
+
+jobs:
+  pqc-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: Ciphermap-io/ciphermap-action@v1
+        with:
+          fail-on: high
+          target: cnsa-2.0
+          cbom-file: ciphermap-cbom-1.7.json
+          license-key: ${{ secrets.CIPHERMAP_LICENSE }}
+```
+
+---
+
+## 2. Enterprise Supply-Chain Hardened Workflow (`StepSecurity` + 40-Char SHA Pin)
+
+For regulated financial, defense (`CMMC 2.0` / `CNSA 2.0`), and `FedRAMP` environments enforcing immutable commit-SHA pinning and `step-security/harden-runner` egress policies:
 
 ```yaml
 name: CipherMap PQC, CNSA 2.0 & Signed CBOM Gate
@@ -21,13 +54,13 @@ on:
 
 permissions:
   contents: read
-  security-events: write   # Uploads SARIF 2.1.0 to GitHub Code Scanning
+  security-events: write
 
 jobs:
   pqc:
     runs-on: ubuntu-latest
     steps:
-      - name: Harden GitHub Runner (Optional — StepSecurity)
+      - name: Harden GitHub Runner (StepSecurity)
         uses: step-security/harden-runner@ec9f2d5744a09debf3a187a3f4f675c53b671911 # v2.13.0
         with:
           egress-policy: block
@@ -39,45 +72,66 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - name: Run CipherMap Zero-Egress PQC & CBOM Gate
-        uses: Ciphermap-io/ciphermap-action@v1 # Pin to the v1.0.6 40-char commit SHA in regulated orgs
+        uses: Ciphermap-io/ciphermap-action@v1 # Or pin to the v1.0.6 40-char commit SHA listed on the Release page
         with:
           fail-on: high
           target: cnsa-2.0
           include-archives: "true"
           cbom-file: ciphermap-cbom-1.7.json
           cbom-spec-version: "1.7"
+          compliance-framework: oscal
           license-key: ${{ secrets.CIPHERMAP_LICENSE }}
 ```
 
-### Zero-Egress Air-Gapped Self-Hosted Runners (`0` Network Calls)
-If `/usr/local/bin/ciphermap` (or `~/.local/bin/ciphermap`) matching `cli-version` (`v1.0.6`) is pre-installed on a self-hosted GitHub Enterprise Server runner image, `ciphermap-action` automatically detects the local binary and executes **zero** outbound `curl` calls — running 100% under `egress-policy: block` without even needing `www.ciphermap.io:443` allowlisted.
+### Air-Gapped Self-Hosted Runners (`0` Outbound Network Calls)
+If `/usr/local/bin/ciphermap` (or `~/.local/bin/ciphermap`) matching `cli-version` (`v1.0.6`) is pre-baked onto a self-hosted GitHub Enterprise Server runner image, `ciphermap-action` automatically detects the local binary and makes **zero** outbound `curl` calls — running 100% under `egress-policy: block` without even needing `www.ciphermap.io:443` allowlisted.
 
-When running on ephemeral `ubuntu-latest` (`Linux x86_64`) without a pre-baked binary, supplying `license-key` authenticates against `https://www.ciphermap.io/api/dl/ci-cli`, verifies the `X-CipherMap-SHA256` digest + pinned `CipherMap Version v1.0.6` string, and executes `scan` / `cbom` with `--offline --no-telemetry`.
+On ephemeral `ubuntu-latest` (`Linux x86_64`) runners without a pre-baked binary, `license-key` authenticates against `https://www.ciphermap.io/api/dl/ci-cli`, verifies the `64`-hex `X-CipherMap-SHA256` digest + pinned `CipherMap Version v1.0.6` banner, and runs `scan` / `cbom` with `--offline --no-telemetry`.
 
-## 2. Inputs
+---
 
-| Input | Default | Meaning |
-|---|---|---|
-| `fail-on` | `high` | Severity that fails the build (`info`, `low`, `medium`, `high`, `critical`, `none`) |
-| `target` | — | Compliance profile (`cnsa-2.0`, `fips-140-3`, `nist-sp-800-56b`, `bsi-tr-02102`, `anssi-pqc`) |
-| `license-key` | — | Signed `CIPHERMAP_LICENSE` secret (`CIPHERMAP-TEAM-...`, `CIPHERMAP-ENTERPRISE-...`, or 7-day corporate trial key) |
-| `cli-version` | `v1.0.6` | Exact CipherMap CLI version verified before scan execution |
-| `sarif-file` | `ciphermap.sarif` | Output path for SARIF 2.1.0 report |
-| `upload-sarif` | `true` | Upload SARIF to GitHub Security → Code Scanning (`if: always()`) |
-| `cbom-file` | — | Emit deterministic CycloneDX 1.6 / 1.7 CBOM JSON |
-| `cbom-spec-version` | `1.7` | CycloneDX CBOM specification version (`1.6` or `1.7`) |
-| `cbom-html-file` | — | Emit standalone zero-backend Interactive HTML CBOM Explorer |
-| `attest-slsa` | `false` | Emit Hybrid PQC (`Ed25519 + ML-DSA-65`) SLSA v1.1 DSSE provenance |
-| `compliance-framework` | — | Emit regulatory working paper (`cnsa-2.0`, `pci-dss-4`, `fedramp`, `cmmc`, `eu-dora`, `oscal`, `all`, etc.) |
-| `wrapper-target` | — | Generate zero-code PQC edge wrapper (`envoy`, `nginx`, `haproxy`, `k8s-sidecar`, `ipsec`, `cert-manager`) |
-| `include-archives` | `false` | Inspect `.jar`, `.war`, `.ear`, `.whl`, `.apk`, `.aab`, `.nupkg`, `.zip` archives |
-| `baseline-file` | — | Gate PRs on continuous PQC drift against a prior baseline JSON |
-| `vendor-sla` | `false` | Emit Third-Party Vendor PQC SLA procurement scorecard |
-| `args` | — | Extra whitespace-delimited CLI arguments |
+## 3. Inputs & Outputs
 
-## 3. OWASP Dependency-Track (`v4.12–4.14` & `v5.x Hyades`) CBOM Ingestion
+### Inputs
 
-CipherMap supports **both** native OWASP Dependency-Track `v5.x` (`Hyades` `cryptographic-asset` ingestion) **and** Dependency-Track `v4.12.x–4.14.x` (automatically projecting `cryptographic-asset` components into lossless `cdx:cbom:*` file carriers with async token polling and readback verification so `4.x` never silently drops cryptographic assets):
+| Input | Required | Default | Description |
+|---|---|---|---|
+| `fail-on` | No | `high` | Severity threshold that fails the workflow (`info`, `low`, `medium`, `high`, `critical`, `none`) |
+| `target` | No | `""` | Compliance target profile (`cnsa-2.0`, `fips-140-3`, `nist-sp-800-56b`, `bsi-tr-02102`, `anssi-pqc`) |
+| `license-key` | No | `""` | Signed `CIPHERMAP_LICENSE` secret (`CIPHERMAP-TEAM-...`, `CIPHERMAP-ENTERPRISE-...`, or 7-day corporate trial key) |
+| `cli-version` | No | `v1.0.6` | Exact CipherMap CLI version verified prior to scan execution |
+| `sarif-file` | No | `ciphermap.sarif` | Output path for the SARIF 2.1.0 report |
+| `upload-sarif` | No | `true` | Upload SARIF 2.1.0 to GitHub Security → Code Scanning (`if: always()`) |
+| `cbom-file` | No | `""` | Emit deterministic CycloneDX `1.6` or `1.7` (ECMA-424) CBOM JSON |
+| `cbom-spec-version` | No | `1.7` | CycloneDX CBOM specification version (`1.6` or `1.7`) |
+| `cbom-html-file` | No | `""` | Emit standalone zero-backend Interactive HTML CBOM Explorer |
+| `attest-slsa` | No | `false` | Emit Hybrid PQC (`Ed25519 + ML-DSA-65`) SLSA v1.1 DSSE provenance (with `pqc-device-key`) |
+| `pqc-device-key` | No | `""` | Path to composite `Ed25519 + ML-DSA-65` seed JSON file when `attest-slsa: "true"` |
+| `compliance-framework` | No | `""` | Emit regulatory report (`cnsa-2.0`, `pci-dss-4`, `fedramp`, `cmmc`, `eu-dora`, `oscal`, `crosswalk`, `all`, etc.) |
+| `compliance-output` | No | `""` | Custom output path for `compliance-framework` report |
+| `wrapper-target` | No | `""` | Generate zero-code PQC edge wrapper (`auto`, `envoy`, `nginx`, `haproxy`, `k8s-sidecar`, `ipsec`, `cert-manager`, `cnsa-2.0`) |
+| `wrapper-output-dir` | No | `""` | Output directory for `wrapper-target` artifacts |
+| `include-archives` | No | `false` | Inspect packaged `.jar`, `.war`, `.ear`, `.whl`, `.apk`, `.aab`, `.nupkg`, `.zip` archives |
+| `baseline-file` | No | `""` | Compare against a prior scan JSON baseline to gate PRs on continuous PQC drift |
+| `vendor-sla` | No | `false` | Emit Third-Party Vendor PQC SLA procurement scorecard (`ciphermap-vendor-sla.json`) |
+| `args` | No | `""` | Extra whitespace-delimited CLI flags passed safely as argv elements |
+
+### Outputs
+
+| Output | Description |
+|---|---|
+| `sarif-file` | Path of the SARIF 2.1.0 report written by the scan |
+| `cbom-file` | Path of the generated CycloneDX 1.6 / 1.7 CBOM JSON (when `cbom-file` is set) |
+| `cbom-html-file` | Path of the standalone Interactive HTML CBOM Explorer (when `cbom-html-file` is set) |
+| `drift-file` | Path of the continuous PQC drift report (`ciphermap-drift.json` when `baseline-file` is set) |
+| `vendor-sla-file` | Path of the Vendor PQC SLA scorecard (`ciphermap-vendor-sla.json` when `vendor-sla` is enabled) |
+| `wrapper-output-dir` | Directory containing generated zero-code PQC edge wrappers (when `wrapper-target` is set) |
+
+---
+
+## 4. OWASP Dependency-Track (`v4.12–4.14` & `v5.x Hyades`) CBOM Ingestion
+
+CipherMap supports **both** native OWASP Dependency-Track `v5.x` (`Hyades` `cryptographic-asset` ingestion) **and** Dependency-Track `v4.12.x–4.14.x` (`--dt-compat auto` projects `cryptographic-asset` components into lossless `cdx:cbom:*` file carriers with async token polling and readback verification so `4.x` never silently drops cryptographic assets):
 
 ```yaml
       - name: Push Signed CBOM to OWASP Dependency-Track (v4 or v5 Auto-Detect)
@@ -98,6 +152,8 @@ CipherMap supports **both** native OWASP Dependency-Track `v5.x` (`Hyades` `cryp
           fi
 ```
 
-## 4. Shift-Left Companion: Local `stdio` MCP Referee (`Claude Code`, `Cursor`, `Windsurf`)
+---
+
+## 5. Shift-Left Companion: Local `stdio` MCP Referee (`Claude Code`, `Cursor`, `Windsurf`)
 
 Pair this CI gate with [`Ciphermap-io/ciphermap-mcp`](https://github.com/Ciphermap-io/ciphermap-mcp) (`io.github.Ciphermap-io/ciphermap-mcp` on the Official MCP Registry) and `ciphermap immunity emit-agent-rules` so AI coding assistants never introduce Round-3 `kyber768` drafts, `RSA-2048`/`SHA-1` regressions, or Trojan Unicode `.cursorrules` / `CLAUDE.md` configs (`IMM-AICFG-001`) before opening a PR.
