@@ -1,6 +1,7 @@
 # CipherMap PQC & CBOM Scan — GitHub Action
 
 [![Validate Action Metadata & Shell Safety](https://github.com/Ciphermap-io/ciphermap-action/actions/workflows/ci.yml/badge.svg)](https://github.com/Ciphermap-io/ciphermap-action/actions/workflows/ci.yml)
+[![GitHub Marketplace](https://img.shields.io/badge/Marketplace-CipherMap%20PQC%20%26%20CBOM%20Scan-7c3aed?logo=github)](https://github.com/marketplace/actions/ciphermap-pqc-cbom-scan)
 [![Latest Release](https://img.shields.io/github/v/release/Ciphermap-io/ciphermap-action?label=release&color=7c3aed)](https://github.com/Ciphermap-io/ciphermap-action/releases/latest)
 [![CycloneDX CBOM](https://img.shields.io/badge/CycloneDX-1.6%20%26%201.7%20CBOM-0ea5e9)](https://cyclonedx.org/tool-center/)
 [![SARIF 2.1.0](https://img.shields.io/badge/GitHub%20Code%20Scanning-SARIF%202.1.0-10b981)](https://www.ciphermap.io/github)
